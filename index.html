@@ -96,14 +96,15 @@ h1{text-align:center;font-size:1.5rem;color:#1a1a2e;margin-bottom:8px;display:fl
   <div class="section">
     <div class="section-title"><span class="badge">2</span> Mano de obra</div>
     <div class="radio-group" id="labor-type-group">
-      <label class="active" data-value="day"><input type="radio" name="laborType" value="day" checked> Por día</label>
-      <label data-value="activity"><input type="radio" name="laborType" value="activity"> Por actividad</label>
-      <label data-value="piece"><input type="radio" name="laborType" value="piece"> Por pieza</label>
+      <label class="active" data-value="day"><input type="checkbox" name="laborType" value="day" checked> Por día</label>
+      <label data-value="activity"><input type="checkbox" name="laborType" value="activity"> Por actividad</label>
+      <label data-value="piece"><input type="checkbox" name="laborType" value="piece"> Por pieza</label>
     </div>
     <div id="labor-day">
       <div class="row">
-        <div class="field"><label>Días de trabajo</label><input type="number" id="labor-days" min="0" step="1" oninput="calc()"></div>
-        <div class="field"><label>Costo por día ($)</label><input type="number" id="labor-costPerDay" min="0" step="0.01" oninput="calc()"></div>
+        <div class="field"><label>Personas que trabajan</label><input type="number" id="labor-people" min="0" step="1" oninput="calc()"></div>
+        <div class="field"><label>Costo por persona / día ($)</label><input type="number" id="labor-costPerPerson" min="0" step="0.01" oninput="calc()"></div>
+        <div class="field"><label>Días trabajados</label><input type="number" id="labor-days" min="0" step="1" oninput="calc()"></div>
       </div>
     </div>
     <div id="labor-activity" class="hidden">
@@ -113,7 +114,7 @@ h1{text-align:center;font-size:1.5rem;color:#1a1a2e;margin-bottom:8px;display:fl
     <div id="labor-piece" class="hidden">
       <div class="row">
         <div class="field"><label>Costo por pieza ($)</label><input type="number" id="labor-costPerPiece" min="0" step="0.01" oninput="calc()"></div>
-        <div class="field"><label>Piezas</label><input type="number" id="labor-pieces" min="0" step="1" oninput="calc()"></div>
+        <div class="field"><label>Capacidad por día (piezas)</label><input type="number" id="labor-capacity" min="0" step="1" oninput="calc()"></div>
       </div>
     </div>
   </div>
@@ -233,20 +234,26 @@ document.addEventListener('DOMContentLoaded', () => {
   addMaterial();
   addFixedItem();
   initRadioGroups();
+  updateLaborVisibility();
   calc();
 });
 
 function initRadioGroups() {
   document.querySelectorAll('.radio-group').forEach(group => {
     group.querySelectorAll('label').forEach(label => {
-      label.addEventListener('click', () => {
-        const radio = label.querySelector('input[type=radio]');
-        if (!radio) return;
-        radio.checked = true;
-        group.querySelectorAll('label').forEach(l => l.classList.remove('active'));
-        label.classList.add('active');
+      label.addEventListener('click', (e) => {
+        const input = label.querySelector('input');
+        if (!input) return;
+        if (input.type === 'radio') {
+          input.checked = true;
+          group.querySelectorAll('label').forEach(l => l.classList.remove('active'));
+          label.classList.add('active');
+        } else if (input.type === 'checkbox') {
+          input.checked = !input.checked;
+          label.classList.toggle('active', input.checked);
+        }
         const event = new Event('change', { bubbles: true });
-        radio.dispatchEvent(event);
+        input.dispatchEvent(event);
       });
     });
   });
@@ -292,7 +299,7 @@ function addMaterial(data) {
         <label>Piezas por lote</label><input type="number" id="mat-batch-pieces-${id}" min="0" step="1" placeholder="Ej: 50" oninput="calc()">
       </div>
       <div class="field"><label>Cantidad comprada</label><input type="number" id="mat-qty-${id}" min="0" step="any" value="1" oninput="calc()"></div>
-      <div class="field"><label>Costo x unidad ($)</label><input type="number" id="mat-cost-${id}" min="0" step="0.01" oninput="calc()"></div>
+      <div class="field"><label id="mat-cost-label-${id}">Costo por unidad ($)</label><input type="number" id="mat-cost-${id}" min="0" step="0.01" oninput="calc()"></div>
     </div>
     <div class="usage-section">
       <div class="usage-header">
@@ -345,6 +352,8 @@ function toggleMatMeasure(id) {
   document.getElementById('mat-measure-' + id).style.display = unit === 'bxh' ? '' : 'none';
   document.getElementById('mat-linear-' + id).style.display = unit === 'linear' ? '' : 'none';
   document.getElementById('mat-batch-field-' + id).style.display = unit === 'batch' ? '' : 'none';
+  const label = document.getElementById('mat-cost-label-' + id);
+  if (label) label.textContent = unit === 'batch' ? 'Costo por lote ($)' : 'Costo por unidad ($)';
   const useType = document.getElementById('mat-use-type-' + id);
   if (useType) {
     Array.from(useType.options).forEach(o => o.style.display = '');
@@ -364,14 +373,17 @@ function toggleMatUsage(id) {
 }
 
 // ===== MANO DE OBRA =====
-document.querySelectorAll('input[name="laborType"]').forEach(r => {
-  r.addEventListener('change', () => {
-    const val = r.value;
-    document.getElementById('labor-day').classList.toggle('hidden', val !== 'day');
-    document.getElementById('labor-activity').classList.toggle('hidden', val !== 'activity');
-    document.getElementById('labor-piece').classList.toggle('hidden', val !== 'piece');
-    calc();
+function updateLaborVisibility() {
+  const checks = document.querySelectorAll('input[name="laborType"]');
+  checks.forEach(cb => {
+    const val = cb.value;
+    document.getElementById('labor-' + (val === 'day' ? 'day' : val)).classList.toggle('hidden', !cb.checked);
   });
+  calc();
+}
+
+document.querySelectorAll('input[name="laborType"]').forEach(cb => {
+  cb.addEventListener('change', updateLaborVisibility);
 });
 
 function addActivity(data) {
@@ -387,7 +399,8 @@ function addActivity(data) {
     </div>
     <div class="row">
       <div class="field"><label>Descripción</label><input type="text" id="act-desc-${id}" placeholder="Ej: Corte, ensamblaje..." oninput="calc()"></div>
-      <div class="field"><label>Costo ($)</label><input type="number" id="act-cost-${id}" min="0" step="0.01" oninput="calc()"></div>
+      <div class="field"><label>Costo x día ($)</label><input type="number" id="act-cost-${id}" min="0" step="0.01" oninput="calc()"></div>
+      <div class="field"><label>Días</label><input type="number" id="act-days-${id}" min="0" step="1" oninput="calc()"></div>
     </div>
   `;
   container.appendChild(div);
@@ -547,22 +560,25 @@ function calc() {
   });
 
   // 2. Mano de obra
-  const laborType = document.querySelector('input[name="laborType"]:checked')?.value || 'day';
   let totalLaborCost = 0;
-  if (laborType === 'day') {
+  if (document.querySelector('input[name="laborType"][value="day"]')?.checked) {
+    const people = parseFloat(document.getElementById('labor-people')?.value) || 0;
+    const costPerPerson = parseFloat(document.getElementById('labor-costPerPerson')?.value) || 0;
     const days = parseFloat(document.getElementById('labor-days')?.value) || 0;
-    const costPerDay = parseFloat(document.getElementById('labor-costPerDay')?.value) || 0;
-    totalLaborCost = days * costPerDay;
-  } else if (laborType === 'activity') {
+    totalLaborCost += people * costPerPerson * days;
+  }
+  if (document.querySelector('input[name="laborType"][value="activity"]')?.checked) {
     document.querySelectorAll('#activities-container .item-card').forEach(card => {
       const id = card.id.replace('act-', '');
       const cost = parseFloat(document.getElementById('act-cost-' + id)?.value) || 0;
-      totalLaborCost += cost;
+      const days = parseFloat(document.getElementById('act-days-' + id)?.value) || 0;
+      totalLaborCost += cost * days;
     });
-  } else if (laborType === 'piece') {
+  }
+  if (document.querySelector('input[name="laborType"][value="piece"]')?.checked) {
     const costPerPiece = parseFloat(document.getElementById('labor-costPerPiece')?.value) || 0;
-    const pieces = parseFloat(document.getElementById('labor-pieces')?.value) || 0;
-    totalLaborCost = costPerPiece * pieces;
+    const batch = parseFloat(document.getElementById('batchSize')?.value) || 0;
+    totalLaborCost += costPerPiece * batch;
   }
 
   // 3. Lote
