@@ -61,6 +61,8 @@ h1{text-align:center;font-size:1.5rem;color:#1a1a2e;margin-bottom:8px;display:fl
 .result-card .result-value.positive{color:#10b981}
 .result-card .result-value.info{color:#4361ee}
 .result-card .result-value.warning{color:#f59e0b}
+.hint{background:#fef9e7;border:1px solid #f9e79f;border-radius:6px;padding:10px 12px;font-size:.78rem;color:#7d6608;margin-bottom:10px;line-height:1.5}
+.hint strong{color:#5a4a02}
 .empty-state{text-align:center;padding:20px;color:#999;font-size:.85rem}
 .footer{text-align:center;color:#999;font-size:.75rem;margin-top:20px;padding:16px 0}
 @media(max-width:600px){.row{flex-direction:column}.field{min-width:100%}.methods-grid{grid-template-columns:repeat(2,1fr)}.results-grid{grid-template-columns:1fr 1fr}}
@@ -123,6 +125,7 @@ h1{text-align:center;font-size:1.5rem;color:#1a1a2e;margin-bottom:8px;display:fl
       <button class="toggle-btn active" data-value="yes" onclick="toggleIndirect('yes')">Incluir</button>
     </div>
     <div id="indirect-container" class="hidden">
+      <div class="hint"><strong>Ejemplos de gastos indirectos:</strong> Electricidad, agua, renta del taller, mantenimiento de maquinaria, herramientas, consumibles (lubricantes, lijas, brocas), transporte, supervisión, control de calidad, depreciación de equipos, seguros, limpieza, material de oficina.</div>
       <div id="indirect-items"></div>
       <button class="btn btn-success btn-sm mt-8" onclick="addIndirectItem()">+ Agregar gasto indirecto</button>
     </div>
@@ -131,8 +134,14 @@ h1{text-align:center;font-size:1.5rem;color:#1a1a2e;margin-bottom:8px;display:fl
   <!-- SECCIÓN 5: COSTOS FIJOS -->
   <div class="section">
     <div class="section-title"><span class="badge">5</span> Costos fijos</div>
-    <div class="row">
-      <div class="field"><label>Costos fijos totales ($)</label><input type="number" id="fixedCosts" min="0" step="0.01" oninput="calc()"></div>
+    <div class="toggle-group" id="fixed-toggle">
+      <button class="toggle-btn" data-value="no" onclick="toggleFixed('no')">No incluir</button>
+      <button class="toggle-btn active" data-value="yes" onclick="toggleFixed('yes')">Incluir</button>
+    </div>
+    <div id="fixed-container">
+      <div class="hint"><strong>Ejemplos de costos fijos:</strong> Renta/local, servicios (agua, luz, internet), sueldos administrativos, seguros, mantenimiento general, depreciación, papelería, vigilancia, limpieza.</div>
+      <div id="fixed-items"></div>
+      <button class="btn btn-success btn-sm mt-8" onclick="addFixedItem()">+ Agregar costo fijo</button>
     </div>
   </div>
 
@@ -213,6 +222,7 @@ let indirectId = 0;
 // ===== INIT =====
 document.addEventListener('DOMContentLoaded', () => {
   addMaterial();
+  addFixedItem();
   initRadioGroups();
   calc();
 });
@@ -384,6 +394,47 @@ function removeIndirect(id) {
   if (el) { el.remove(); calc(); }
 }
 
+// ===== COSTOS FIJOS =====
+let fixedId = 0;
+
+function toggleFixed(val) {
+  const btns = document.querySelectorAll('#fixed-toggle .toggle-btn');
+  btns.forEach(b => b.classList.toggle('active', b.dataset.value === val));
+  if (document.querySelectorAll('#fixed-items .item-card').length === 0 && val === 'yes') {
+    addFixedItem();
+  }
+  calc();
+}
+
+function addFixedItem(data) {
+  const id = ++fixedId;
+  const container = document.getElementById('fixed-items');
+  const div = document.createElement('div');
+  div.className = 'item-card';
+  div.id = 'fix-' + id;
+  div.innerHTML = `
+    <div class="item-header">
+      <span class="item-title">Costo fijo #${id}</span>
+      <button class="btn btn-danger" onclick="removeFixed(${id})">✕</button>
+    </div>
+    <div class="row">
+      <div class="field"><label>Concepto</label><input type="text" id="fix-concept-${id}" placeholder="Ej: Renta, servicios..." oninput="calc()"></div>
+      <div class="field"><label>Monto ($)</label><input type="number" id="fix-amount-${id}" min="0" step="0.01" oninput="calc()"></div>
+    </div>
+  `;
+  container.appendChild(div);
+  if (data) {
+    document.getElementById('fix-concept-' + id).value = data.concept || '';
+    document.getElementById('fix-amount-' + id).value = data.amount || '';
+  }
+  calc();
+}
+
+function removeFixed(id) {
+  const el = document.getElementById('fix-' + id);
+  if (el) { el.remove(); calc(); }
+}
+
 // ===== UTILIDAD =====
 document.querySelectorAll('input[name="profitType"]').forEach(r => {
   r.addEventListener('change', () => {
@@ -439,7 +490,15 @@ function calc() {
   }
 
   // 5. Costos fijos
-  const fixedCosts = parseFloat(document.getElementById('fixedCosts')?.value) || 0;
+  const fixedEnabled = document.querySelector('#fixed-toggle .toggle-btn.active')?.dataset?.value === 'yes';
+  let fixedCosts = 0;
+  if (fixedEnabled) {
+    document.querySelectorAll('#fixed-items .item-card').forEach(card => {
+      const id = card.id.replace('fix-', '');
+      const amount = parseFloat(document.getElementById('fix-amount-' + id)?.value) || 0;
+      fixedCosts += amount;
+    });
+  }
 
   // 6. Utilidad
   const profitType = document.querySelector('input[name="profitType"]:checked')?.value || 'percentage';
@@ -485,11 +544,19 @@ function calc() {
     'eoq': hasEoqData,
   };
 
+  const methodMissing = {
+    'cost-plus': !hasCostData ? 'Falta: costos o lote' : !hasProfitData ? 'Falta: % o $ ganancia' : '',
+    'break-even': !hasFixedCosts ? 'Falta: costos fijos' : !hasSellingPrice ? 'Falta: precio venta' : '',
+    'contribution': !hasSellingPrice ? 'Falta: precio venta' : '',
+    'roi': !hasCostData ? 'Falta: costos o lote' : roiPercent <= 0 ? 'Falta: % ROI' : '',
+    'eoq': !eoqDemand ? 'Falta: demanda anual' : !eoqSetup ? 'Falta: costo setup' : !eoqHolding ? 'Falta: costo almacén' : '',
+  };
+
   // Mostrar/ocultar EOQ fields
   document.getElementById('eoq-fields').classList.toggle('hidden', !(hasCostData));
 
   // Actualizar métodos
-  updateMethods(methods);
+  updateMethods(methods, methodMissing);
 
   // Resultados
   const results = {};
@@ -540,7 +607,7 @@ function calc() {
   renderResults(results, hasCostData);
 }
 
-function updateMethods(methods) {
+function updateMethods(methods, missing) {
   Object.keys(methods).forEach(key => {
     const el = document.getElementById('m-' + key);
     if (!el) return;
@@ -553,7 +620,7 @@ function updateMethods(methods) {
     } else {
       el.classList.remove('active');
       el.classList.add('disabled');
-      statusEl.textContent = '— Faltan datos';
+      statusEl.textContent = missing?.[key] || '— Faltan datos';
       statusEl.className = 'method-status';
     }
   });
