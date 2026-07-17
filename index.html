@@ -47,6 +47,11 @@ h1{text-align:center;font-size:1.5rem;color:#1a1a2e;margin-bottom:8px;display:fl
 .item-card{background:#f8f9fc;border-radius:8px;padding:14px;margin-bottom:8px;border:1px solid #e9edf3}
 .item-card .item-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
 .item-card .item-title{font-size:.82rem;font-weight:500;color:#333}
+.usage-section{margin-top:10px;padding-top:10px;border-top:1px dashed #d0d5dd}
+.usage-toggle{display:flex;align-items:center;gap:7px;font-size:.82rem;color:#555;cursor:pointer;padding:4px 0}
+.usage-toggle input[type=checkbox]{width:16px;height:16px;cursor:pointer;accent-color:#4361ee}
+.usage-detail{padding:10px 12px;background:#f0f4ff;border-radius:6px;margin-top:8px;border:1px solid #d6e0ff}
+.usage-summary{font-size:.78rem;color:#666;margin-top:6px;text-align:right}
 .methods-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
 .method-card{padding:12px;border:1px solid #e9edf3;border-radius:8px;text-align:center;font-size:.82rem;cursor:default;transition:all .15s;background:#f8f9fc}
 .method-card.active{background:#eef0ff;border-color:#4361ee}
@@ -56,11 +61,15 @@ h1{text-align:center;font-size:1.5rem;color:#1a1a2e;margin-bottom:8px;display:fl
 .method-card .method-status.available{color:#10b981}
 .results-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px}
 .result-card{background:#f8f9fc;border-radius:8px;padding:14px;border:1px solid #e9edf3}
+.result-card.full{grid-column:1/-1}
 .result-card .result-label{font-size:.75rem;color:#666;margin-bottom:4px}
 .result-card .result-value{font-size:1.2rem;font-weight:700;color:#1a1a2e}
 .result-card .result-value.positive{color:#10b981}
 .result-card .result-value.info{color:#4361ee}
 .result-card .result-value.warning{color:#f59e0b}
+.result-detail{font-size:.72rem;color:#888;margin-top:2px;font-family:monospace}
+.result-chart-wrap{margin-top:10px;border-top:1px solid #e9edf3;padding-top:8px}
+.result-chart-wrap canvas{width:100%;height:auto;display:block;border-radius:4px}
 .hint{background:#fef9e7;border:1px solid #f9e79f;border-radius:6px;padding:10px 12px;font-size:.78rem;color:#7d6608;margin-bottom:10px;line-height:1.5}
 .hint strong{color:#5a4a02}
 .empty-state{text-align:center;padding:20px;color:#999;font-size:.85rem}
@@ -279,8 +288,34 @@ function addMaterial(data) {
       <div class="field" id="mat-linear-${id}" style="display:none">
         <label>Metros lineales</label><input type="number" id="mat-meters-${id}" min="0" step="any" oninput="calc()">
       </div>
-      <div class="field"><label>Cantidad</label><input type="number" id="mat-qty-${id}" min="0" step="any" value="1" oninput="calc()"></div>
-      <div class="field"><label>Costo por unidad ($)</label><input type="number" id="mat-cost-${id}" min="0" step="0.01" oninput="calc()"></div>
+      <div class="field" id="mat-batch-field-${id}" style="display:none">
+        <label>Piezas por lote</label><input type="number" id="mat-batch-pieces-${id}" min="0" step="1" placeholder="Ej: 50" oninput="calc()">
+      </div>
+      <div class="field"><label>Cantidad comprada</label><input type="number" id="mat-qty-${id}" min="0" step="any" value="1" oninput="calc()"></div>
+      <div class="field"><label>Costo x unidad ($)</label><input type="number" id="mat-cost-${id}" min="0" step="0.01" oninput="calc()"></div>
+    </div>
+    <div class="usage-section">
+      <div class="usage-header">
+        <label class="usage-toggle">
+          <input type="checkbox" id="mat-use-all-${id}" checked onchange="toggleMatUsage(${id})">
+          Usar todo el material comprado
+        </label>
+      </div>
+      <div id="mat-usage-${id}" class="usage-detail hidden">
+        <div class="row">
+          <div class="field">
+            <label>Tipo de uso</label>
+            <select id="mat-use-type-${id}" onchange="calc()">
+              <option value="percent">Porcentaje (%)</option>
+              <option value="pieces">Piezas</option>
+              <option value="batch-pieces">Piezas del lote</option>
+              <option value="other">Otra medida</option>
+            </select>
+          </div>
+          <div class="field"><label>Valor</label><input type="number" id="mat-use-value-${id}" min="0" step="any" oninput="calc()"></div>
+        </div>
+      </div>
+      <div class="usage-summary" id="mat-summary-${id}"></div>
     </div>
   `;
   container.appendChild(div);
@@ -307,10 +342,24 @@ function removeMaterial(id) {
 
 function toggleMatMeasure(id) {
   const unit = document.getElementById('mat-unit-' + id).value;
-  const measureDiv = document.getElementById('mat-measure-' + id);
-  const linearDiv = document.getElementById('mat-linear-' + id);
-  measureDiv.style.display = unit === 'bxh' ? '' : 'none';
-  linearDiv.style.display = unit === 'linear' ? '' : 'none';
+  document.getElementById('mat-measure-' + id).style.display = unit === 'bxh' ? '' : 'none';
+  document.getElementById('mat-linear-' + id).style.display = unit === 'linear' ? '' : 'none';
+  document.getElementById('mat-batch-field-' + id).style.display = unit === 'batch' ? '' : 'none';
+  const useType = document.getElementById('mat-use-type-' + id);
+  if (useType) {
+    Array.from(useType.options).forEach(o => o.style.display = '');
+    if (unit !== 'batch') {
+      const bo = useType.querySelector('option[value="batch-pieces"]');
+      if (bo) bo.style.display = 'none';
+      if (useType.value === 'batch-pieces') useType.value = 'percent';
+    }
+  }
+  calc();
+}
+
+function toggleMatUsage(id) {
+  const useAll = document.getElementById('mat-use-all-' + id).checked;
+  document.getElementById('mat-usage-' + id).classList.toggle('hidden', useAll);
   calc();
 }
 
@@ -453,7 +502,48 @@ function calc() {
     const id = card.id.replace('mat-', '');
     const qty = parseFloat(document.getElementById('mat-qty-' + id)?.value) || 0;
     const cost = parseFloat(document.getElementById('mat-cost-' + id)?.value) || 0;
-    totalMaterialCost += qty * cost;
+    const batchPieces = parseFloat(document.getElementById('mat-batch-pieces-' + id)?.value) || 1;
+    const unit = document.getElementById('mat-unit-' + id)?.value || 'piece';
+    const useAll = document.getElementById('mat-use-all-' + id)?.checked;
+
+    let appliedCost, summary;
+    if (unit === 'batch') {
+      const totalPieces = qty * batchPieces;
+      const costPerPiece = batchPieces > 0 ? cost / batchPieces : 0;
+      if (useAll) {
+        appliedCost = qty * cost;
+        summary = `Costo total lote: $${(qty * cost).toFixed(2)}`;
+      } else {
+        const type = document.getElementById('mat-use-type-' + id)?.value || 'percent';
+        const val = parseFloat(document.getElementById('mat-use-value-' + id)?.value) || 0;
+        if (type === 'percent') {
+          appliedCost = qty * cost * (val / 100);
+          summary = `Usando ${val}% → $${appliedCost.toFixed(2)} de $${(qty * cost).toFixed(2)}`;
+        } else {
+          const usedPieces = Math.min(val, totalPieces);
+          appliedCost = usedPieces * costPerPiece;
+          summary = `Usando ${usedPieces} pieza(s) → $${appliedCost.toFixed(2)}`;
+        }
+      }
+    } else {
+      if (useAll) {
+        appliedCost = qty * cost;
+        summary = `Total: $${appliedCost.toFixed(2)}`;
+      } else {
+        const type = document.getElementById('mat-use-type-' + id)?.value || 'percent';
+        const val = parseFloat(document.getElementById('mat-use-value-' + id)?.value) || 0;
+        if (type === 'percent') {
+          appliedCost = qty * cost * (val / 100);
+          summary = `Usando ${val}% → $${appliedCost.toFixed(2)} de $${(qty * cost).toFixed(2)}`;
+        } else {
+          appliedCost = Math.min(val, qty) * cost;
+          summary = `Usando ${Math.min(val, qty)} und. → $${appliedCost.toFixed(2)}`;
+        }
+      }
+    }
+    totalMaterialCost += appliedCost;
+    const summaryEl = document.getElementById('mat-summary-' + id);
+    if (summaryEl) summaryEl.textContent = summary;
   });
 
   // 2. Mano de obra
@@ -559,48 +649,59 @@ function calc() {
   updateMethods(methods, methodMissing);
 
   // Resultados
-  const results = {};
+  const results = [];
 
   // Cost-Plus
   if (methods['cost-plus']) {
-    results['Costo Unitario Total'] = { value: totalCostPerUnit, type: 'currency' };
-    results['Costo Variable Unitario'] = { value: varCostPerUnit, type: 'currency' };
-    results['Costo Fijo Unitario'] = { value: fixedCostPerUnit, type: 'currency' };
+    results.push({ label: 'Costo Unitario Total', value: totalCostPerUnit, type: 'currency', detail: `= $${varCostPerUnit.toFixed(2)} var + $${fixedCostPerUnit.toFixed(2)} fijo` });
+    results.push({ label: 'Costo Variable Unitario', value: varCostPerUnit, type: 'currency' });
+    results.push({ label: 'Costo Fijo Unitario', value: fixedCostPerUnit, type: 'currency' });
   }
 
   if (methods['cost-plus'] && sellingPrice > 0) {
-    results['Precio de Venta (Cost-Plus)'] = { value: sellingPrice, type: 'currency', cls: 'info' };
+    const detail = profitType === 'percentage'
+      ? `= $${totalCostPerUnit.toFixed(2)} × (1 + ${profitPercent}%)`
+      : `= $${totalCostPerUnit.toFixed(2)} + ($${profitAmount.toFixed(2)} / ${batchSize})`;
+    results.push({ label: 'Precio de Venta (Cost-Plus)', value: sellingPrice, type: 'currency', cls: 'info', detail });
   }
 
   // Break-even
   if (methods['break-even']) {
     const beUnits = fixedCosts / (sellingPrice - varCostPerUnit);
-    results['Punto de Equilibrio'] = { value: Math.ceil(beUnits), type: 'units', cls: 'positive' };
+    results.push({
+      label: 'Punto de Equilibrio', value: Math.ceil(beUnits), type: 'units', cls: 'positive',
+      detail: `= $${fixedCosts.toFixed(0)} / ($${sellingPrice.toFixed(2)} - $${varCostPerUnit.toFixed(2)})`,
+      chart: { type: 'be', data: { fixedCosts, varCostPerUnit, sellingPrice, beUnits: Math.ceil(beUnits) } }
+    });
   }
 
   // Contribution margin
   if (methods['contribution']) {
     const cm = sellingPrice - varCostPerUnit;
     const cmRatio = sellingPrice > 0 ? (cm / sellingPrice) * 100 : 0;
-    results['Margen de Contribución'] = { value: cm, type: 'currency', cls: 'positive' };
-    results['% Margen de Contribución'] = { value: cmRatio, type: 'percent', cls: 'positive' };
+    results.push({ label: 'Margen de Contribución', value: cm, type: 'currency', cls: 'positive', detail: `= $${sellingPrice.toFixed(2)} - $${varCostPerUnit.toFixed(2)}` });
+    results.push({ label: '% Margen de Contribución', value: cmRatio, type: 'percent', cls: 'positive', detail: `= ($${cm.toFixed(2)} / $${sellingPrice.toFixed(2)}) × 100` });
   }
 
   // ROI
   if (methods['roi']) {
     const roiPrice = totalCostPerUnit * (1 + roiPercent / 100);
-    results['Precio con ROI ' + roiPercent + '%'] = { value: roiPrice, type: 'currency', cls: 'info' };
     const totalRevenue = roiPrice * batchSize;
     const totalProfit = totalRevenue - totalCost;
-    results['Ganancia Total (ROI)'] = { value: totalProfit, type: 'currency', cls: 'positive' };
+    results.push({ label: 'Precio con ROI ' + roiPercent + '%', value: roiPrice, type: 'currency', cls: 'info', detail: `= $${totalCostPerUnit.toFixed(2)} × (1 + ${roiPercent}%)` });
+    results.push({ label: 'Ganancia Total (ROI)', value: totalProfit, type: 'currency', cls: 'positive' });
   }
 
   // EOQ
   if (methods['eoq']) {
     const eoq = Math.sqrt((2 * eoqDemand * eoqSetup) / eoqHolding);
     const totalEoqCost = (eoqDemand / eoq) * eoqSetup + (eoq / 2) * eoqHolding;
-    results['Lote Óptimo (EOQ)'] = { value: Math.round(eoq), type: 'units', cls: 'info' };
-    results['Costo Total Inventario'] = { value: totalEoqCost, type: 'currency' };
+    results.push({
+      label: 'Lote Óptimo (EOQ)', value: Math.round(eoq), type: 'units', cls: 'info',
+      detail: `= √(2 × ${eoqDemand} × $${eoqSetup.toFixed(2)} / $${eoqHolding.toFixed(2)})`,
+      chart: { type: 'eoq', data: { demand: eoqDemand, setup: eoqSetup, holding: eoqHolding, eoq: Math.round(eoq) } }
+    });
+    results.push({ label: 'Costo Total Inventario', value: totalEoqCost, type: 'currency', detail: `= (${eoqDemand}/${Math.round(eoq)})×$${eoqSetup.toFixed(2)} + (${Math.round(eoq)}/2)×$${eoqHolding.toFixed(2)}` });
   }
 
   // Mostrar resultados
@@ -629,7 +730,7 @@ function updateMethods(methods, missing) {
 function renderResults(results, hasData) {
   const grid = document.getElementById('results-grid');
   const empty = document.getElementById('results-content');
-  if (!hasData || Object.keys(results).length === 0) {
+  if (!hasData || results.length === 0) {
     grid.classList.add('hidden');
     empty.classList.remove('hidden');
     return;
@@ -637,19 +738,184 @@ function renderResults(results, hasData) {
   empty.classList.add('hidden');
   grid.classList.remove('hidden');
   grid.innerHTML = '';
-  Object.entries(results).forEach(([label, data]) => {
+  const charts = [];
+  results.forEach((r, i) => {
     const card = document.createElement('div');
-    card.className = 'result-card';
-    const val = data.type === 'currency' ? '$' + data.value.toFixed(2)
-      : data.type === 'percent' ? data.value.toFixed(1) + '%'
-      : data.type === 'units' ? data.value.toLocaleString() + ' und.'
-      : data.value;
-    card.innerHTML = `
-      <div class="result-label">${label}</div>
-      <div class="result-value ${data.cls || ''}">${val}</div>
-    `;
+    card.className = 'result-card' + (r.chart ? ' full' : '');
+    const val = r.type === 'currency' ? '$' + r.value.toFixed(2)
+      : r.type === 'percent' ? r.value.toFixed(1) + '%'
+      : r.type === 'units' ? r.value.toLocaleString() + ' und.'
+      : r.value;
+    let html = `
+      <div class="result-label">${r.label}</div>
+      <div class="result-value ${r.cls || ''}">${val}</div>`;
+    if (r.detail) html += `<div class="result-detail">${r.detail}</div>`;
+    if (r.chart) {
+      const cid = 'chart-' + i;
+      html += `<div class="result-chart-wrap"><canvas id="${cid}" width="600" height="220"></canvas></div>`;
+      charts.push({ id: cid, chart: r.chart });
+    }
+    card.innerHTML = html;
     grid.appendChild(card);
   });
+  charts.forEach(c => setTimeout(() => drawChart(c.id, c.chart), 50));
+}
+
+function drawChart(id, cfg) {
+  const c = document.getElementById(id);
+  if (!c) return;
+  const ctx = c.getContext('2d');
+  const W = c.width, H = c.height;
+  const pad = { t: 20, r: 20, b: 35, l: 50 };
+  const cw = W - pad.l - pad.r, ch = H - pad.t - pad.b;
+  ctx.clearRect(0, 0, W, H);
+
+  if (cfg.type === 'be') drawBEChart(ctx, cfg.data, pad, cw, ch);
+  else if (cfg.type === 'eoq') drawEOQChart(ctx, cfg.data, pad, cw, ch);
+}
+
+function drawBEChart(ctx, d, pad, cw, ch) {
+  const { fixedCosts, varCostPerUnit, sellingPrice, beUnits } = d;
+  const maxU = Math.max(beUnits * 2, 10);
+  const max$ = Math.max(fixedCosts + varCostPerUnit * maxU, sellingPrice * maxU) * 1.15;
+
+  const x = u => pad.l + (u / maxU) * cw;
+  const y = v => pad.t + ch - (v / max$) * ch;
+
+  // grid
+  ctx.strokeStyle = '#eee'; ctx.lineWidth = 0.5;
+  for (let i = 0; i <= 4; i++) {
+    const yy = pad.t + (ch / 4) * i;
+    ctx.beginPath(); ctx.moveTo(pad.l, yy); ctx.lineTo(pad.l + cw, yy); ctx.stroke();
+    ctx.fillStyle = '#999'; ctx.font = '10px sans-serif'; ctx.textAlign = 'right';
+    ctx.fillText('$' + Math.round((max$ / 4) * (4 - i)), pad.l - 4, yy + 3);
+  }
+  for (let i = 0; i <= 4; i++) {
+    const xx = pad.l + (cw / 4) * i;
+    ctx.beginPath(); ctx.moveTo(xx, pad.t); ctx.lineTo(xx, pad.t + ch); ctx.stroke();
+    ctx.fillStyle = '#999'; ctx.font = '10px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText(Math.round((maxU / 4) * i), xx, pad.t + ch + 14);
+  }
+
+  // labels
+  ctx.fillStyle = '#666'; ctx.font = '10px sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText('Unidades', pad.l + cw / 2, H - 2);
+  ctx.save(); ctx.translate(12, pad.t + ch / 2); ctx.rotate(-Math.PI / 2); ctx.fillText('$', 0, 0); ctx.restore();
+
+  // fixed cost line
+  ctx.strokeStyle = '#f59e0b'; ctx.lineWidth = 1.5; ctx.setLineDash([4, 4]);
+  ctx.beginPath(); ctx.moveTo(x(0), y(fixedCosts)); ctx.lineTo(x(maxU), y(fixedCosts)); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = '#f59e0b'; ctx.font = '10px sans-serif'; ctx.textAlign = 'left';
+  ctx.fillText('CF: $' + fixedCosts.toFixed(0), x(maxU) + 4, y(fixedCosts) + 3);
+
+  // total cost line
+  ctx.strokeStyle = '#ef4444'; ctx.lineWidth = 2;
+  ctx.beginPath();
+  for (let u = 0; u <= maxU; u += Math.max(1, Math.floor(maxU / 100))) {
+    const tc = fixedCosts + varCostPerUnit * u;
+    u === 0 ? ctx.moveTo(x(u), y(tc)) : ctx.lineTo(x(u), y(tc));
+  }
+  ctx.stroke();
+  ctx.fillStyle = '#ef4444'; ctx.font = '10px sans-serif'; ctx.textAlign = 'left';
+  ctx.fillText('CT = $' + fixedCosts.toFixed(0) + ' + $' + varCostPerUnit.toFixed(2) + '×Q', x(maxU) + 4, y(fixedCosts + varCostPerUnit * maxU));
+
+  // revenue line
+  ctx.strokeStyle = '#10b981'; ctx.lineWidth = 2;
+  ctx.beginPath();
+  for (let u = 0; u <= maxU; u += Math.max(1, Math.floor(maxU / 100))) {
+    const rv = sellingPrice * u;
+    u === 0 ? ctx.moveTo(x(u), y(rv)) : ctx.lineTo(x(u), y(rv));
+  }
+  ctx.stroke();
+  ctx.fillStyle = '#10b981'; ctx.font = '10px sans-serif'; ctx.textAlign = 'left';
+  ctx.fillText('IT = $' + sellingPrice.toFixed(2) + '×Q', x(maxU) + 4, y(sellingPrice * maxU));
+
+  // BE point
+  const beX = x(beUnits), beY = y(sellingPrice * beUnits);
+  ctx.fillStyle = '#4361ee'; ctx.beginPath(); ctx.arc(beX, beY, 5, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#1a1a2e'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'left';
+  ctx.fillText('PE: ' + beUnits + ' und.', beX + 8, beY - 2);
+  ctx.fillStyle = '#4361ee'; ctx.font = '10px sans-serif';
+  ctx.fillText('$' + (sellingPrice * beUnits).toFixed(0), beX + 8, beY + 12);
+
+  // legend
+  ctx.fillStyle = '#999'; ctx.font = '9px sans-serif'; ctx.textAlign = 'right';
+  ctx.fillText('CF=cte   CT=CF+CV×Q   IT=PV×Q   ● PE', pad.l + cw, pad.t - 6);
+}
+
+function drawEOQChart(ctx, d, pad, cw, ch) {
+  const { demand, setup, holding, eoq } = d;
+  const maxQ = Math.max(eoq * 3, 100);
+  const max$ = ((demand / 1) * setup + (1 / 2) * holding) * 1.2;
+
+  const x = q => pad.l + (q / maxQ) * cw;
+  const y = v => pad.t + ch - (v / max$) * ch;
+
+  // grid
+  ctx.strokeStyle = '#eee'; ctx.lineWidth = 0.5;
+  for (let i = 0; i <= 4; i++) {
+    const yy = pad.t + (ch / 4) * i;
+    ctx.beginPath(); ctx.moveTo(pad.l, yy); ctx.lineTo(pad.l + cw, yy); ctx.stroke();
+    ctx.fillStyle = '#999'; ctx.font = '10px sans-serif'; ctx.textAlign = 'right';
+    ctx.fillText('$' + Math.round((max$ / 4) * (4 - i)), pad.l - 4, yy + 3);
+  }
+  for (let i = 0; i <= 4; i++) {
+    const xx = pad.l + (cw / 4) * i;
+    ctx.beginPath(); ctx.moveTo(xx, pad.t); ctx.lineTo(xx, pad.t + ch); ctx.stroke();
+    ctx.fillStyle = '#999'; ctx.font = '10px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText(Math.round((maxQ / 4) * i), xx, pad.t + ch + 14);
+  }
+
+  ctx.fillStyle = '#666'; ctx.font = '10px sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText('Cantidad por pedido (Q)', pad.l + cw / 2, H - 2);
+  ctx.save(); ctx.translate(12, pad.t + ch / 2); ctx.rotate(-Math.PI / 2); ctx.fillText('Costo', 0, 0); ctx.restore();
+
+  // holding cost: (Q/2) * H
+  ctx.strokeStyle = '#f59e0b'; ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  for (let q = 1; q <= maxQ; q += Math.max(1, Math.floor(maxQ / 100))) {
+    const hc = (q / 2) * holding;
+    q === 1 ? ctx.moveTo(x(q), y(hc)) : ctx.lineTo(x(q), y(hc));
+  }
+  ctx.stroke();
+  ctx.fillStyle = '#f59e0b'; ctx.font = '9px sans-serif'; ctx.textAlign = 'left';
+  ctx.fillText('C. Almacén = (Q/2)×$' + holding.toFixed(2), x(maxQ / 2), y((maxQ / 4) * holding) - 6);
+
+  // ordering cost: (D/Q) * S
+  ctx.strokeStyle = '#ef4444'; ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  for (let q = 1; q <= maxQ; q += Math.max(1, Math.floor(maxQ / 100))) {
+    const oc = (demand / q) * setup;
+    q === 1 ? ctx.moveTo(x(q), y(oc)) : ctx.lineTo(x(q), y(oc));
+  }
+  ctx.stroke();
+  ctx.fillStyle = '#ef4444'; ctx.font = '9px sans-serif'; ctx.textAlign = 'right';
+  ctx.fillText('C. Pedido = (' + demand + '/Q)×$' + setup.toFixed(2), x(maxQ), y((demand / maxQ) * setup) + 10);
+
+  // total cost
+  ctx.strokeStyle = '#4361ee'; ctx.lineWidth = 2;
+  ctx.beginPath();
+  let minTC = Infinity, minQ = 0;
+  for (let q = 1; q <= maxQ; q += Math.max(1, Math.floor(maxQ / 100))) {
+    const tc = (q / 2) * holding + (demand / q) * setup;
+    if (tc < minTC) { minTC = tc; minQ = q; }
+    q === 1 ? ctx.moveTo(x(q), y(tc)) : ctx.lineTo(x(q), y(tc));
+  }
+  ctx.stroke();
+  ctx.fillStyle = '#4361ee'; ctx.font = '9px sans-serif'; ctx.textAlign = 'left';
+  ctx.fillText('CT = C.Almacén + C.Pedido', x(maxQ / 2), y(minTC * 0.85) - 6);
+
+  // EOQ point
+  const eoqX = x(eoq), eoqY = y((eoq / 2) * holding + (demand / eoq) * setup);
+  ctx.fillStyle = '#10b981'; ctx.beginPath(); ctx.arc(eoqX, eoqY, 5, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#1a1a2e'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'left';
+  ctx.fillText('EOQ: ' + eoq + ' und.', eoqX + 8, eoqY - 2);
+  ctx.fillStyle = '#10b981'; ctx.font = '10px sans-serif';
+  ctx.fillText('$' + ((eoq / 2) * holding + (demand / eoq) * setup).toFixed(2), eoqX + 8, eoqY + 12);
+
+  ctx.fillStyle = '#999'; ctx.font = '9px sans-serif'; ctx.textAlign = 'right';
+  ctx.fillText('C. Almacén   C. Pedido   CT   ● EOQ', pad.l + cw, pad.t - 6);
 }
 </script>
 </body>
