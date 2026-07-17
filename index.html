@@ -68,8 +68,10 @@ h1{text-align:center;font-size:1.5rem;color:#1a1a2e;margin-bottom:8px;display:fl
 .result-card .result-value.info{color:#4361ee}
 .result-card .result-value.warning{color:#f59e0b}
 .result-detail{font-size:.72rem;color:#888;margin-top:2px;font-family:monospace}
+.result-desc{font-size:.7rem;color:#999;margin-top:0;font-style:italic;line-height:1.3}
+.result-heading{grid-column:1/-1;font-size:.82rem;font-weight:700;color:#1a1a2e;padding:6px 0 2px 0;border-bottom:2px solid #4361ee;margin-bottom:2px}
 .result-chart-wrap{margin-top:10px;border-top:1px solid #e9edf3;padding-top:8px}
-.result-chart-wrap canvas{width:100%;height:auto;display:block;border-radius:4px}
+.result-chart-wrap canvas{width:100%;height:220px;display:block;border-radius:4px;background:#fafbfc}
 .hint{background:#fef9e7;border:1px solid #f9e79f;border-radius:6px;padding:10px 12px;font-size:.78rem;color:#7d6608;margin-bottom:10px;line-height:1.5}
 .hint strong{color:#5a4a02}
 .empty-state{text-align:center;padding:20px;color:#999;font-size:.85rem}
@@ -511,6 +513,7 @@ function calc() {
   // 1. Costo materiales
   const matCards = document.querySelectorAll('#materials-container .item-card');
   let totalMaterialCost = 0;
+  let totalMaterialPurchased = 0;
   matCards.forEach(card => {
     const id = card.id.replace('mat-', '');
     const qty = parseFloat(document.getElementById('mat-qty-' + id)?.value) || 0;
@@ -519,19 +522,20 @@ function calc() {
     const unit = document.getElementById('mat-unit-' + id)?.value || 'piece';
     const useAll = document.getElementById('mat-use-all-' + id)?.checked;
 
-    let appliedCost, summary;
+    let purchasedCost, appliedCost, summary;
     if (unit === 'batch') {
+      purchasedCost = qty * cost;
       const totalPieces = qty * batchPieces;
       const costPerPiece = batchPieces > 0 ? cost / batchPieces : 0;
       if (useAll) {
-        appliedCost = qty * cost;
-        summary = `Costo total lote: $${(qty * cost).toFixed(2)}`;
+        appliedCost = purchasedCost;
+        summary = `Costo total lote: $${purchasedCost.toFixed(2)}`;
       } else {
         const type = document.getElementById('mat-use-type-' + id)?.value || 'percent';
         const val = parseFloat(document.getElementById('mat-use-value-' + id)?.value) || 0;
         if (type === 'percent') {
-          appliedCost = qty * cost * (val / 100);
-          summary = `Usando ${val}% → $${appliedCost.toFixed(2)} de $${(qty * cost).toFixed(2)}`;
+          appliedCost = purchasedCost * (val / 100);
+          summary = `Usando ${val}% → $${appliedCost.toFixed(2)} de $${purchasedCost.toFixed(2)}`;
         } else {
           const usedPieces = Math.min(val, totalPieces);
           appliedCost = usedPieces * costPerPiece;
@@ -539,25 +543,28 @@ function calc() {
         }
       }
     } else {
+      purchasedCost = qty * cost;
       if (useAll) {
-        appliedCost = qty * cost;
+        appliedCost = purchasedCost;
         summary = `Total: $${appliedCost.toFixed(2)}`;
       } else {
         const type = document.getElementById('mat-use-type-' + id)?.value || 'percent';
         const val = parseFloat(document.getElementById('mat-use-value-' + id)?.value) || 0;
         if (type === 'percent') {
-          appliedCost = qty * cost * (val / 100);
-          summary = `Usando ${val}% → $${appliedCost.toFixed(2)} de $${(qty * cost).toFixed(2)}`;
+          appliedCost = purchasedCost * (val / 100);
+          summary = `Usando ${val}% → $${appliedCost.toFixed(2)} de $${purchasedCost.toFixed(2)}`;
         } else {
           appliedCost = Math.min(val, qty) * cost;
           summary = `Usando ${Math.min(val, qty)} und. → $${appliedCost.toFixed(2)}`;
         }
       }
     }
+    totalMaterialPurchased += purchasedCost;
     totalMaterialCost += appliedCost;
     const summaryEl = document.getElementById('mat-summary-' + id);
     if (summaryEl) summaryEl.textContent = summary;
   });
+  const materialInventory = totalMaterialPurchased - totalMaterialCost;
 
   // 2. Mano de obra
   let totalLaborCost = 0;
@@ -664,21 +671,46 @@ function calc() {
   // Actualizar métodos
   updateMethods(methods, methodMissing);
 
-  // Resultados
+  // Resultados — Desglose de costos
   const results = [];
 
-  // Cost-Plus
-  if (methods['cost-plus']) {
-    results.push({ label: 'Costo Unitario Total', value: totalCostPerUnit, type: 'currency', detail: `= $${varCostPerUnit.toFixed(2)} var + $${fixedCostPerUnit.toFixed(2)} fijo` });
-    results.push({ label: 'Costo Variable Unitario', value: varCostPerUnit, type: 'currency' });
-    results.push({ label: 'Costo Fijo Unitario', value: fixedCostPerUnit, type: 'currency' });
+  if (hasCostData) {
+    results.push({ label: '═══ COSTOS ═══', type: 'heading' });
+    results.push({ label: 'Anticipo (Material Comprado)', value: totalMaterialPurchased, type: 'currency', cls: 'warning', desc: 'Dinero total que pagaste por los materiales, hayas usado todo o no.' });
+    results.push({ label: 'Material Utilizado', value: totalMaterialCost, type: 'currency', desc: 'Costo de los materiales que realmente se consumieron en esta producción.' });
+    results.push({ label: '→ Almacén MP (sin usar)', value: materialInventory, type: 'currency', cls: materialInventory > 0 ? 'info' : '', desc: 'Material que compraste pero no usaste. Queda disponible para próximos pedidos.' });
+    results.push({ label: 'Mano de Obra', value: totalLaborCost, type: 'currency', desc: 'Pago a los trabajadores por su labor en esta producción.' });
+    results.push({ label: 'Gastos Indirectos', value: totalIndirectCost, type: 'currency', desc: 'Gastos necesarios para producir pero que no van directo al producto (luz, renta, mantenimiento, etc.).' });
+    results.push({ label: '─── Costo Variable Total ───', value: totalVariableCost, type: 'currency', cls: 'info', desc: 'Materiales + Mano de obra + Indirectos. Varían según cuánto produzcas.' });
+    results.push({ label: 'Costos Fijos', value: fixedCosts, type: 'currency', desc: 'Gastos que pagas igual produzcas o no (renta, sueldos admin., seguros).' });
+    results.push({ label: '─── Costo Total ───', value: totalCost, type: 'currency', cls: 'info', desc: 'Todo lo que gastaste: costos variables + costos fijos.' });
+
+    if (batchSize > 0) {
+      results.push({ label: 'Costo Unitario', value: totalCostPerUnit, type: 'currency', desc: 'Lo que cuesta hacer una sola pieza.', detail: `= $${varCostPerUnit.toFixed(2)} var + $${fixedCostPerUnit.toFixed(2)} fijo` });
+    }
+
+    if (sellingPrice > 0) {
+      const detail = profitType === 'percentage'
+        ? `= $${totalCostPerUnit.toFixed(2)} × (1 + ${profitPercent}%)`
+        : `= $${totalCostPerUnit.toFixed(2)} + ($${profitAmount.toFixed(2)} / ${batchSize})`;
+      results.push({ label: '═══ VENTAS ═══', type: 'heading' });
+      results.push({ label: 'Precio de Venta x Unidad', value: sellingPrice, type: 'currency', cls: 'info', desc: 'Precio al que vendes cada pieza.', detail });
+
+      const totalRevenue = sellingPrice * batchSize;
+      results.push({ label: 'Ingreso Total (Lote)', value: totalRevenue, type: 'currency', cls: 'positive', desc: 'Dinero que recibirás por vender todo el lote.' });
+
+      const utilidadBruta = totalRevenue - totalVariableCost;
+      results.push({ label: 'Utilidad Bruta', value: utilidadBruta, type: 'currency', cls: 'positive', desc: 'Ganancia después de cubrir materiales, mano de obra e indirectos.', detail: `= $${totalRevenue.toFixed(2)} - $${totalVariableCost.toFixed(2)}` });
+
+      const utilidadNeta = utilidadBruta - fixedCosts;
+      results.push({ label: 'Utilidad Neta', value: utilidadNeta, type: 'currency', cls: utilidadNeta >= 0 ? 'positive' : 'warning', desc: 'Ganancia final después de pagar TODOS los costos (variables + fijos).', detail: `= $${utilidadBruta.toFixed(2)} - $${fixedCosts.toFixed(2)}` });
+    }
   }
 
+  // Cost-Plus
   if (methods['cost-plus'] && sellingPrice > 0) {
-    const detail = profitType === 'percentage'
-      ? `= $${totalCostPerUnit.toFixed(2)} × (1 + ${profitPercent}%)`
-      : `= $${totalCostPerUnit.toFixed(2)} + ($${profitAmount.toFixed(2)} / ${batchSize})`;
-    results.push({ label: 'Precio de Venta (Cost-Plus)', value: sellingPrice, type: 'currency', cls: 'info', detail });
+    results.push({ label: '═══ MÉTODOS ═══', type: 'heading' });
+    results.push({ label: 'Precio de Venta (Cost-Plus)', value: sellingPrice, type: 'currency', cls: 'info', desc: 'Precio calculado con la fórmula "costo + margen". Es el método más usado en la industria.' });
   }
 
   // Break-even
@@ -686,6 +718,7 @@ function calc() {
     const beUnits = fixedCosts / (sellingPrice - varCostPerUnit);
     results.push({
       label: 'Punto de Equilibrio', value: Math.ceil(beUnits), type: 'units', cls: 'positive',
+      desc: 'Cuántas piezas necesitas vender para no ganar ni perder dinero. Si vendes menos, pierdes; si vendes más, ganas.',
       detail: `= $${fixedCosts.toFixed(0)} / ($${sellingPrice.toFixed(2)} - $${varCostPerUnit.toFixed(2)})`,
       chart: { type: 'be', data: { fixedCosts, varCostPerUnit, sellingPrice, beUnits: Math.ceil(beUnits) } }
     });
@@ -695,8 +728,8 @@ function calc() {
   if (methods['contribution']) {
     const cm = sellingPrice - varCostPerUnit;
     const cmRatio = sellingPrice > 0 ? (cm / sellingPrice) * 100 : 0;
-    results.push({ label: 'Margen de Contribución', value: cm, type: 'currency', cls: 'positive', detail: `= $${sellingPrice.toFixed(2)} - $${varCostPerUnit.toFixed(2)}` });
-    results.push({ label: '% Margen de Contribución', value: cmRatio, type: 'percent', cls: 'positive', detail: `= ($${cm.toFixed(2)} / $${sellingPrice.toFixed(2)}) × 100` });
+    results.push({ label: 'Margen de Contribución', value: cm, type: 'currency', cls: 'positive', desc: 'Lo que "gana" cada pieza después de pagar materiales, mano de obra e indirectos. Ayuda a saber si un producto es rentable.', detail: `= $${sellingPrice.toFixed(2)} - $${varCostPerUnit.toFixed(2)}` });
+    results.push({ label: '% Margen de Contribución', value: cmRatio, type: 'percent', cls: 'positive', desc: 'Porcentaje del precio que queda como ganancia después de cubrir los costos variables.', detail: `= ($${cm.toFixed(2)} / $${sellingPrice.toFixed(2)}) × 100` });
   }
 
   // ROI
@@ -704,8 +737,8 @@ function calc() {
     const roiPrice = totalCostPerUnit * (1 + roiPercent / 100);
     const totalRevenue = roiPrice * batchSize;
     const totalProfit = totalRevenue - totalCost;
-    results.push({ label: 'Precio con ROI ' + roiPercent + '%', value: roiPrice, type: 'currency', cls: 'info', detail: `= $${totalCostPerUnit.toFixed(2)} × (1 + ${roiPercent}%)` });
-    results.push({ label: 'Ganancia Total (ROI)', value: totalProfit, type: 'currency', cls: 'positive' });
+    results.push({ label: 'Precio con ROI ' + roiPercent + '%', value: roiPrice, type: 'currency', cls: 'info', desc: 'Precio que debes fijar para obtener el porcentaje de retorno sobre inversión que deseas.', detail: `= $${totalCostPerUnit.toFixed(2)} × (1 + ${roiPercent}%)` });
+    results.push({ label: 'Ganancia Total (ROI)', value: totalProfit, type: 'currency', cls: 'positive', desc: 'Dinero total que ganarías aplicando ese % de ROI sobre tu inversión.' });
   }
 
   // EOQ
@@ -714,10 +747,11 @@ function calc() {
     const totalEoqCost = (eoqDemand / eoq) * eoqSetup + (eoq / 2) * eoqHolding;
     results.push({
       label: 'Lote Óptimo (EOQ)', value: Math.round(eoq), type: 'units', cls: 'info',
+      desc: 'Cantidad ideal que debes pedir o producir cada vez para minimizar costos de inventario.',
       detail: `= √(2 × ${eoqDemand} × $${eoqSetup.toFixed(2)} / $${eoqHolding.toFixed(2)})`,
       chart: { type: 'eoq', data: { demand: eoqDemand, setup: eoqSetup, holding: eoqHolding, eoq: Math.round(eoq) } }
     });
-    results.push({ label: 'Costo Total Inventario', value: totalEoqCost, type: 'currency', detail: `= (${eoqDemand}/${Math.round(eoq)})×$${eoqSetup.toFixed(2)} + (${Math.round(eoq)}/2)×$${eoqHolding.toFixed(2)}` });
+    results.push({ label: 'Costo Total Inventario (EOQ)', value: totalEoqCost, type: 'currency', desc: 'Costo anual total de tener inventario si pides en lotes del tamaño EOQ.', detail: `= (${eoqDemand}/${Math.round(eoq)})×$${eoqSetup.toFixed(2)} + (${Math.round(eoq)}/2)×$${eoqHolding.toFixed(2)}` });
   }
 
   // Mostrar resultados
@@ -756,6 +790,13 @@ function renderResults(results, hasData) {
   grid.innerHTML = '';
   const charts = [];
   results.forEach((r, i) => {
+    if (r.type === 'heading') {
+      const div = document.createElement('div');
+      div.className = 'result-heading';
+      div.textContent = r.label;
+      grid.appendChild(div);
+      return;
+    }
     const card = document.createElement('div');
     card.className = 'result-card' + (r.chart ? ' full' : '');
     const val = r.type === 'currency' ? '$' + r.value.toFixed(2)
@@ -766,6 +807,7 @@ function renderResults(results, hasData) {
       <div class="result-label">${r.label}</div>
       <div class="result-value ${r.cls || ''}">${val}</div>`;
     if (r.detail) html += `<div class="result-detail">${r.detail}</div>`;
+    if (r.desc) html += `<div class="result-desc">${r.desc}</div>`;
     if (r.chart) {
       const cid = 'chart-' + i;
       html += `<div class="result-chart-wrap"><canvas id="${cid}" width="600" height="220"></canvas></div>`;
@@ -781,157 +823,181 @@ function drawChart(id, cfg) {
   const c = document.getElementById(id);
   if (!c) return;
   const ctx = c.getContext('2d');
-  const W = c.width, H = c.height;
-  const pad = { t: 20, r: 20, b: 35, l: 50 };
+  const W = 600, H = 220;
+  const pad = { t: 25, r: 20, b: 38, l: 55 };
   const cw = W - pad.l - pad.r, ch = H - pad.t - pad.b;
   ctx.clearRect(0, 0, W, H);
 
-  if (cfg.type === 'be') drawBEChart(ctx, cfg.data, pad, cw, ch);
-  else if (cfg.type === 'eoq') drawEOQChart(ctx, cfg.data, pad, cw, ch);
+  if (cfg.type === 'be') drawBEChart(ctx, cfg.data, pad, cw, ch, W, H);
+  else if (cfg.type === 'eoq') drawEOQChart(ctx, cfg.data, pad, cw, ch, W, H);
 }
 
-function drawBEChart(ctx, d, pad, cw, ch) {
+function drawBEChart(ctx, d, pad, cw, ch, W, H) {
   const { fixedCosts, varCostPerUnit, sellingPrice, beUnits } = d;
-  const maxU = Math.max(beUnits * 2, 10);
-  const max$ = Math.max(fixedCosts + varCostPerUnit * maxU, sellingPrice * maxU) * 1.15;
+  if (beUnits <= 0) return;
+  const maxU = Math.max(Math.ceil(beUnits * 2), 20);
+  const maxTC = fixedCosts + varCostPerUnit * maxU;
+  const maxRV = sellingPrice * maxU;
+  let maxY = Math.max(maxTC, maxRV);
+  if (maxY <= 0) maxY = 1;
+  maxY *= 1.15;
 
-  const x = u => pad.l + (u / maxU) * cw;
-  const y = v => pad.t + ch - (v / max$) * ch;
+  const toX = u => pad.l + (u / maxU) * cw;
+  const toY = v => pad.t + ch - (v / maxY) * ch;
 
-  // grid
-  ctx.strokeStyle = '#eee'; ctx.lineWidth = 0.5;
+  ctx.strokeStyle = '#e8e8e8'; ctx.lineWidth = 0.5;
   for (let i = 0; i <= 4; i++) {
     const yy = pad.t + (ch / 4) * i;
     ctx.beginPath(); ctx.moveTo(pad.l, yy); ctx.lineTo(pad.l + cw, yy); ctx.stroke();
     ctx.fillStyle = '#999'; ctx.font = '10px sans-serif'; ctx.textAlign = 'right';
-    ctx.fillText('$' + Math.round((max$ / 4) * (4 - i)), pad.l - 4, yy + 3);
+    const label = (i === 4) ? '$0' : '$' + Math.round((maxY / 4) * (4 - i));
+    ctx.fillText(label, pad.l - 5, yy + 3);
   }
   for (let i = 0; i <= 4; i++) {
     const xx = pad.l + (cw / 4) * i;
     ctx.beginPath(); ctx.moveTo(xx, pad.t); ctx.lineTo(xx, pad.t + ch); ctx.stroke();
     ctx.fillStyle = '#999'; ctx.font = '10px sans-serif'; ctx.textAlign = 'center';
-    ctx.fillText(Math.round((maxU / 4) * i), xx, pad.t + ch + 14);
+    ctx.fillText(Math.round((maxU / 4) * i), xx, pad.t + ch + 15);
   }
 
-  // labels
   ctx.fillStyle = '#666'; ctx.font = '10px sans-serif'; ctx.textAlign = 'center';
   ctx.fillText('Unidades', pad.l + cw / 2, H - 2);
-  ctx.save(); ctx.translate(12, pad.t + ch / 2); ctx.rotate(-Math.PI / 2); ctx.fillText('$', 0, 0); ctx.restore();
+  ctx.save(); ctx.translate(13, pad.t + ch / 2); ctx.rotate(-Math.PI / 2);
+  ctx.fillText('$', 0, 0); ctx.restore();
 
-  // fixed cost line
-  ctx.strokeStyle = '#f59e0b'; ctx.lineWidth = 1.5; ctx.setLineDash([4, 4]);
-  ctx.beginPath(); ctx.moveTo(x(0), y(fixedCosts)); ctx.lineTo(x(maxU), y(fixedCosts)); ctx.stroke();
+  ctx.strokeStyle = '#f59e0b'; ctx.lineWidth = 2; ctx.setLineDash([5, 5]);
+  ctx.beginPath(); ctx.moveTo(toX(0), toY(fixedCosts)); ctx.lineTo(toX(maxU), toY(fixedCosts)); ctx.stroke();
   ctx.setLineDash([]);
-  ctx.fillStyle = '#f59e0b'; ctx.font = '10px sans-serif'; ctx.textAlign = 'left';
-  ctx.fillText('CF: $' + fixedCosts.toFixed(0), x(maxU) + 4, y(fixedCosts) + 3);
+  ctx.fillStyle = '#f59e0b'; ctx.font = 'bold 10px sans-serif'; ctx.textAlign = 'left';
+  ctx.fillText('CF = $' + fixedCosts.toFixed(0), toX(maxU * 0.15), toY(fixedCosts) - 5);
 
-  // total cost line
   ctx.strokeStyle = '#ef4444'; ctx.lineWidth = 2;
   ctx.beginPath();
-  for (let u = 0; u <= maxU; u += Math.max(1, Math.floor(maxU / 100))) {
+  const step = Math.max(1, Math.floor(maxU / 80));
+  let first = true;
+  for (let u = 0; u <= maxU; u += step) {
     const tc = fixedCosts + varCostPerUnit * u;
-    u === 0 ? ctx.moveTo(x(u), y(tc)) : ctx.lineTo(x(u), y(tc));
+    const xc = toX(u), yc = toY(tc);
+    if (first) { ctx.moveTo(xc, yc); first = false; } else ctx.lineTo(xc, yc);
   }
   ctx.stroke();
-  ctx.fillStyle = '#ef4444'; ctx.font = '10px sans-serif'; ctx.textAlign = 'left';
-  ctx.fillText('CT = $' + fixedCosts.toFixed(0) + ' + $' + varCostPerUnit.toFixed(2) + '×Q', x(maxU) + 4, y(fixedCosts + varCostPerUnit * maxU));
+  const lastTC = fixedCosts + varCostPerUnit * maxU;
+  ctx.fillStyle = '#ef4444'; ctx.font = 'bold 10px sans-serif'; ctx.textAlign = 'left';
+  ctx.fillText('CT = $' + fixedCosts.toFixed(0) + ' + $' + varCostPerUnit.toFixed(2) + '×Q', toX(maxU * 0.55), toY(lastTC) + 14);
 
-  // revenue line
   ctx.strokeStyle = '#10b981'; ctx.lineWidth = 2;
   ctx.beginPath();
-  for (let u = 0; u <= maxU; u += Math.max(1, Math.floor(maxU / 100))) {
+  first = true;
+  for (let u = 0; u <= maxU; u += step) {
     const rv = sellingPrice * u;
-    u === 0 ? ctx.moveTo(x(u), y(rv)) : ctx.lineTo(x(u), y(rv));
+    const xc = toX(u), yc = toY(rv);
+    if (first) { ctx.moveTo(xc, yc); first = false; } else ctx.lineTo(xc, yc);
   }
   ctx.stroke();
-  ctx.fillStyle = '#10b981'; ctx.font = '10px sans-serif'; ctx.textAlign = 'left';
-  ctx.fillText('IT = $' + sellingPrice.toFixed(2) + '×Q', x(maxU) + 4, y(sellingPrice * maxU));
+  ctx.fillStyle = '#10b981'; ctx.font = 'bold 10px sans-serif'; ctx.textAlign = 'left';
+  ctx.fillText('IT = $' + sellingPrice.toFixed(2) + '×Q', toX(maxU * 0.55), toY(sellingPrice * maxU) - 6);
 
-  // BE point
-  const beX = x(beUnits), beY = y(sellingPrice * beUnits);
-  ctx.fillStyle = '#4361ee'; ctx.beginPath(); ctx.arc(beX, beY, 5, 0, Math.PI * 2); ctx.fill();
+  const beX = toX(beUnits);
+  const beVal = sellingPrice * beUnits;
+  const beY = toY(beVal);
+  ctx.fillStyle = '#4361ee'; ctx.beginPath(); ctx.arc(beX, beY, 6, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#4361ee'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(beX, beY, 6, 0, Math.PI * 2); ctx.stroke();
   ctx.fillStyle = '#1a1a2e'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'left';
-  ctx.fillText('PE: ' + beUnits + ' und.', beX + 8, beY - 2);
+  ctx.fillText('Punto Equilibrio: ' + beUnits + ' und.', beX + 10, beY - 5);
   ctx.fillStyle = '#4361ee'; ctx.font = '10px sans-serif';
-  ctx.fillText('$' + (sellingPrice * beUnits).toFixed(0), beX + 8, beY + 12);
+  ctx.fillText('$' + beVal.toFixed(0), beX + 10, beY + 9);
 
-  // legend
-  ctx.fillStyle = '#999'; ctx.font = '9px sans-serif'; ctx.textAlign = 'right';
-  ctx.fillText('CF=cte   CT=CF+CV×Q   IT=PV×Q   ● PE', pad.l + cw, pad.t - 6);
+  ctx.fillStyle = '#bbb'; ctx.font = '9px sans-serif'; ctx.textAlign = 'right';
+  ctx.fillText('— CF  — CT  — IT  ● PE', pad.l + cw, pad.t - 5);
 }
 
-function drawEOQChart(ctx, d, pad, cw, ch) {
+function drawEOQChart(ctx, d, pad, cw, ch, W, H) {
   const { demand, setup, holding, eoq } = d;
-  const maxQ = Math.max(eoq * 3, 100);
-  const max$ = ((demand / 1) * setup + (1 / 2) * holding) * 1.2;
+  if (eoq <= 0) return;
+  const maxQ = Math.max(Math.ceil(eoq * 3), 60);
 
-  const x = q => pad.l + (q / maxQ) * cw;
-  const y = v => pad.t + ch - (v / max$) * ch;
+  const toX = q => pad.l + (q / maxQ) * cw;
+  const toY = v => pad.t + ch - (v / maxY) * ch;
 
-  // grid
-  ctx.strokeStyle = '#eee'; ctx.lineWidth = 0.5;
+  const maxQv = Math.max(maxQ, 1);
+  let maxY = 0;
+  for (let q = 1; q <= maxQv; q += Math.max(1, Math.floor(maxQv / 100))) {
+    const tc = (q / 2) * holding + (demand / q) * setup;
+    if (tc > maxY) maxY = tc;
+  }
+  if (maxY <= 0) maxY = 1;
+  maxY *= 1.15;
+
+  ctx.strokeStyle = '#e8e8e8'; ctx.lineWidth = 0.5;
   for (let i = 0; i <= 4; i++) {
     const yy = pad.t + (ch / 4) * i;
     ctx.beginPath(); ctx.moveTo(pad.l, yy); ctx.lineTo(pad.l + cw, yy); ctx.stroke();
     ctx.fillStyle = '#999'; ctx.font = '10px sans-serif'; ctx.textAlign = 'right';
-    ctx.fillText('$' + Math.round((max$ / 4) * (4 - i)), pad.l - 4, yy + 3);
+    const label = (i === 4) ? '$0' : '$' + Math.round((maxY / 4) * (4 - i));
+    ctx.fillText(label, pad.l - 5, yy + 3);
   }
   for (let i = 0; i <= 4; i++) {
     const xx = pad.l + (cw / 4) * i;
     ctx.beginPath(); ctx.moveTo(xx, pad.t); ctx.lineTo(xx, pad.t + ch); ctx.stroke();
     ctx.fillStyle = '#999'; ctx.font = '10px sans-serif'; ctx.textAlign = 'center';
-    ctx.fillText(Math.round((maxQ / 4) * i), xx, pad.t + ch + 14);
+    ctx.fillText(Math.round((maxQv / 4) * i), xx, pad.t + ch + 15);
   }
 
   ctx.fillStyle = '#666'; ctx.font = '10px sans-serif'; ctx.textAlign = 'center';
   ctx.fillText('Cantidad por pedido (Q)', pad.l + cw / 2, H - 2);
-  ctx.save(); ctx.translate(12, pad.t + ch / 2); ctx.rotate(-Math.PI / 2); ctx.fillText('Costo', 0, 0); ctx.restore();
+  ctx.save(); ctx.translate(13, pad.t + ch / 2); ctx.rotate(-Math.PI / 2);
+  ctx.fillText('Costo', 0, 0); ctx.restore();
 
-  // holding cost: (Q/2) * H
-  ctx.strokeStyle = '#f59e0b'; ctx.lineWidth = 1.5;
+  const step = Math.max(1, Math.floor(maxQv / 100));
+
+  ctx.strokeStyle = '#f59e0b'; ctx.lineWidth = 2;
   ctx.beginPath();
-  for (let q = 1; q <= maxQ; q += Math.max(1, Math.floor(maxQ / 100))) {
+  let first = true;
+  for (let q = 1; q <= maxQv; q += step) {
     const hc = (q / 2) * holding;
-    q === 1 ? ctx.moveTo(x(q), y(hc)) : ctx.lineTo(x(q), y(hc));
+    if (first) { ctx.moveTo(toX(q), toY(hc)); first = false; } else ctx.lineTo(toX(q), toY(hc));
   }
   ctx.stroke();
-  ctx.fillStyle = '#f59e0b'; ctx.font = '9px sans-serif'; ctx.textAlign = 'left';
-  ctx.fillText('C. Almacén = (Q/2)×$' + holding.toFixed(2), x(maxQ / 2), y((maxQ / 4) * holding) - 6);
+  ctx.fillStyle = '#f59e0b'; ctx.font = 'bold 9px sans-serif'; ctx.textAlign = 'left';
+  ctx.fillText('C. Almacén = (Q/2)×$' + holding.toFixed(2), toX(maxQv * 0.05), toY((maxQv / 2) * holding) + 14);
 
-  // ordering cost: (D/Q) * S
-  ctx.strokeStyle = '#ef4444'; ctx.lineWidth = 1.5;
+  ctx.strokeStyle = '#ef4444'; ctx.lineWidth = 2;
   ctx.beginPath();
-  for (let q = 1; q <= maxQ; q += Math.max(1, Math.floor(maxQ / 100))) {
+  first = true;
+  for (let q = 1; q <= maxQv; q += step) {
     const oc = (demand / q) * setup;
-    q === 1 ? ctx.moveTo(x(q), y(oc)) : ctx.lineTo(x(q), y(oc));
+    if (first) { ctx.moveTo(toX(q), toY(oc)); first = false; } else ctx.lineTo(toX(q), toY(oc));
   }
   ctx.stroke();
-  ctx.fillStyle = '#ef4444'; ctx.font = '9px sans-serif'; ctx.textAlign = 'right';
-  ctx.fillText('C. Pedido = (' + demand + '/Q)×$' + setup.toFixed(2), x(maxQ), y((demand / maxQ) * setup) + 10);
+  ctx.fillStyle = '#ef4444'; ctx.font = 'bold 9px sans-serif'; ctx.textAlign = 'right';
+  ctx.fillText('C. Pedido = (' + demand + '/Q)×$' + setup.toFixed(2), toX(maxQv), toY((demand / maxQv) * setup) + 14);
 
-  // total cost
-  ctx.strokeStyle = '#4361ee'; ctx.lineWidth = 2;
+  ctx.strokeStyle = '#4361ee'; ctx.lineWidth = 2.5;
   ctx.beginPath();
-  let minTC = Infinity, minQ = 0;
-  for (let q = 1; q <= maxQ; q += Math.max(1, Math.floor(maxQ / 100))) {
+  first = true;
+  let minTC = Infinity;
+  for (let q = 1; q <= maxQv; q += step) {
     const tc = (q / 2) * holding + (demand / q) * setup;
-    if (tc < minTC) { minTC = tc; minQ = q; }
-    q === 1 ? ctx.moveTo(x(q), y(tc)) : ctx.lineTo(x(q), y(tc));
+    if (tc < minTC) minTC = tc;
+    if (first) { ctx.moveTo(toX(q), toY(tc)); first = false; } else ctx.lineTo(toX(q), toY(tc));
   }
   ctx.stroke();
-  ctx.fillStyle = '#4361ee'; ctx.font = '9px sans-serif'; ctx.textAlign = 'left';
-  ctx.fillText('CT = C.Almacén + C.Pedido', x(maxQ / 2), y(minTC * 0.85) - 6);
+  ctx.fillStyle = '#4361ee'; ctx.font = 'bold 9px sans-serif'; ctx.textAlign = 'left';
+  ctx.fillText('CT = C.Almacén + C.Pedido', toX(maxQv * 0.4), toY(minTC * 0.85) + 14);
 
-  // EOQ point
-  const eoqX = x(eoq), eoqY = y((eoq / 2) * holding + (demand / eoq) * setup);
-  ctx.fillStyle = '#10b981'; ctx.beginPath(); ctx.arc(eoqX, eoqY, 5, 0, Math.PI * 2); ctx.fill();
+  const eoqTC = (eoq / 2) * holding + (demand / eoq) * setup;
+  const eoqX = toX(eoq), eoqY = toY(eoqTC);
+  ctx.fillStyle = '#10b981'; ctx.beginPath(); ctx.arc(eoqX, eoqY, 6, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#10b981'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(eoqX, eoqY, 6, 0, Math.PI * 2); ctx.stroke();
   ctx.fillStyle = '#1a1a2e'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'left';
-  ctx.fillText('EOQ: ' + eoq + ' und.', eoqX + 8, eoqY - 2);
+  ctx.fillText('EOQ: ' + eoq + ' und.', eoqX + 10, eoqY - 5);
   ctx.fillStyle = '#10b981'; ctx.font = '10px sans-serif';
-  ctx.fillText('$' + ((eoq / 2) * holding + (demand / eoq) * setup).toFixed(2), eoqX + 8, eoqY + 12);
+  ctx.fillText('$' + eoqTC.toFixed(2), eoqX + 10, eoqY + 9);
 
-  ctx.fillStyle = '#999'; ctx.font = '9px sans-serif'; ctx.textAlign = 'right';
-  ctx.fillText('C. Almacén   C. Pedido   CT   ● EOQ', pad.l + cw, pad.t - 6);
+  ctx.fillStyle = '#bbb'; ctx.font = '9px sans-serif'; ctx.textAlign = 'right';
+  ctx.fillText('— C.Almacén  — C.Pedido  — CT  ● EOQ', pad.l + cw, pad.t - 5);
 }
 </script>
 </body>
